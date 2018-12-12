@@ -11,7 +11,8 @@ set(sources src/main.cpp
             src/helpers.h
             src/stdafx.h
             src/path_planner.h
-            src/path_planner.cpp)
+            src/path_planner.cpp
+            src/spline.h)
 
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
