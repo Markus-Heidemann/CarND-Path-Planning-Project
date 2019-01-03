@@ -117,14 +117,12 @@ int main()
           // ###########################
 
           // std::vector< std::vector<double>> trajectory = planner.getPath(veh_data);
-          std::vector<std::vector<double>> trajectory = planner.followLane(veh_data,
-                                                                           0,
-                                                                           0.4,
-                                                                           map_waypoints_x,
-                                                                           map_waypoints_y,
-                                                                           map_waypoints_s,
-                                                                           map_waypoints_dx,
-                                                                           map_waypoints_dy);
+          std::vector<std::vector<double>> trajectory = planner.getPath(veh_data,
+                                                                        map_waypoints_x,
+                                                                        map_waypoints_y,
+                                                                        map_waypoints_s,
+                                                                        map_waypoints_dx,
+                                                                        map_waypoints_dy);
 
           // TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
           msgJson["next_x"] = trajectory[0];
