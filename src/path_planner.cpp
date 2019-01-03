@@ -14,10 +14,16 @@ std::vector<std::vector<double>> PathPlanner::getPath(VehicleData &veh_data,
                                                       const vector<double> &maps_dy)
 {
     int lane = 1;
-    double ref_vel = 49.5;
+    double v_max = 49.5;
+    double a_max = 0.18;
+    double ref_vel = v_max;
+    double target_vel = v_max;
+    double lane_width = 4.0;
 
     double car_x = veh_data.car_x;
     double car_y = veh_data.car_y;
+    double car_s = veh_data.car_s;
+    double car_vel = veh_data.car_speed;
     double car_yaw = deg2rad(veh_data.car_yaw);
 
     std::vector<double> pts_x;
@@ -27,6 +33,32 @@ std::vector<std::vector<double>> PathPlanner::getPath(VehicleData &veh_data,
     std::vector<double> next_y_vals;
 
     int prev_path_size = veh_data.previous_path_x.size();
+
+    if (prev_path_size > 2)
+    {
+        car_s = veh_data.end_path_s;
+    }
+
+    bool to_close = false;
+    double dist_margin = 5.0;
+
+    for (auto fus_obj : veh_data.sensor_fusion)
+    {
+        // check, if vehicle is in ego lane
+        if ((fus_obj.d < ((lane + 1) * lane_width)) and (fus_obj.d > (lane * lane_width)))
+        {
+            // if distance to vehicle is to small
+            double s_dist = fus_obj.s - car_s;
+            if (0 <= s_dist and s_dist < dist_margin)
+            {
+                to_close = true;
+
+                target_vel = sqrt(fus_obj.vx * fus_obj.vx + fus_obj.vy * fus_obj.vy) * 2.24;
+                // ref_vel = 29.5;
+                // lane = 0;
+            }
+        }
+    }
 
     double ref_x = car_x;
     double ref_y = car_y;
@@ -96,9 +128,32 @@ std::vector<std::vector<double>> PathPlanner::getPath(VehicleData &veh_data,
 
     double x_addon = 0;
 
-    for (unsigned int i = 0; i < 50 - veh_data.previous_path_x.size(); i++)
+
+    for (unsigned int i = 0; i < 50 - prev_path_size; i++)
     {
-        double N = target_dist / (0.02 * ref_vel / 2.24);
+        double curr_vel;
+
+        if (prev_path_size > 0)
+        {
+            double prev_dx = next_x_vals[next_x_vals.size() - 1] - next_x_vals[next_x_vals.size() - 2];
+            double prev_dy = next_y_vals[next_y_vals.size() - 1] - next_y_vals[next_y_vals.size() - 2];
+            curr_vel = (sqrt(prev_dx * prev_dx + prev_dy * prev_dy) / 0.02) * 2.24;
+        }
+        else
+        {
+            curr_vel = car_vel;
+        }
+
+        if (target_vel < curr_vel)
+        {
+            curr_vel -= a_max * 2.24;
+        }
+        else
+        {
+            curr_vel += a_max * 2.24;
+        }
+
+        double N = target_dist / (0.02 * curr_vel / 2.24);
         double x_point = x_addon + target_x / N;
         double y_point = s(x_point);
 
