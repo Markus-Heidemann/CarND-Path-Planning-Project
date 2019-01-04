@@ -226,28 +226,28 @@ inline vector<double> getXY(double s,
 
 inline int lane_from_d(double d, int num_lanes = 3, double lane_width = 4.0)
 {
-  for (unsigned int lane_idx = 0; lane_idx < num_lanes; ++lane_idx)
+  int res = -1;
+  for (unsigned int lane_idx = 0; lane_idx < num_lanes; lane_idx++)
   {
-    if ((d < ((lane_idx + 1) * lane_width)) and (d > (lane_idx * lane_width)))
+    if ((d < ((lane_idx + 1) * lane_width)) and (d >= (lane_idx * lane_width)))
     {
-      return lane_idx;
+      res = lane_idx;
     }
   }
+  return res;
 }
 
-inline void getVehiclesFront(std::vector<FusionObjData> &ret,
-                             const std::vector<FusionData> &veh_in_lanes,
-                             const double &s)
+inline std::vector<FusionObjData> getVehiclesFront(const std::vector<FusionData> &veh_in_lanes,
+                                                    const double &s)
 {
-  assert(ret.size() == veh_in_lanes.size());
-
+  std::vector<FusionObjData> ret = std::vector<FusionObjData>(veh_in_lanes.size());
   for (unsigned int i = 0; i < veh_in_lanes.size(); i++)
   {
-    auto &lane = veh_in_lanes[i];
+    auto lane = veh_in_lanes[i];
     double min_dist = INF;
     double s_diff = 0;
 
-    for (auto &veh : lane)
+    for (auto& veh : lane)
     {
       s_diff = veh.s - s;
       if (s_diff >= 0 && s_diff < min_dist)
@@ -256,13 +256,13 @@ inline void getVehiclesFront(std::vector<FusionObjData> &ret,
       }
     }
   }
+  return ret;
 }
 
 inline std::vector<double> getLaneSpeeds(const std::vector<FusionData> &veh_in_lanes,
                                          const double &s)
 {
-  FusionData vehicles_front_by_lane = FusionData(veh_in_lanes.size());
-  getVehiclesFront(vehicles_front_by_lane, veh_in_lanes, s);
+  auto vehicles_front_by_lane = getVehiclesFront(veh_in_lanes, s);
   std::vector<double> res = std::vector<double>(vehicles_front_by_lane.size(), INF);
 
   for (unsigned int i = 0; i < vehicles_front_by_lane.size(); i++)

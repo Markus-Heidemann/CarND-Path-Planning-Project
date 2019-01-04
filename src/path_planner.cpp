@@ -40,37 +40,43 @@ std::vector<std::vector<double>> PathPlanner::getPath(VehicleData &veh_data,
 
   double dist_margin = 5.0;
 
-  vector<vector<FusionObjData>> fus_obj_by_lane = vector<vector<FusionObjData>>(num_lanes, vector<FusionObjData>());
-
-  for (auto fus_obj : veh_data.sensor_fusion)
+  if (0 < veh_data.sensor_fusion.size())
   {
-    fus_obj_by_lane[lane_from_d(fus_obj.d)].push_back(fus_obj);
-  }
+    vector<vector<FusionObjData>> fus_obj_by_lane = vector<vector<FusionObjData>>(num_lanes, vector<FusionObjData>());
 
-  auto lane_speeds = getLaneSpeeds(fus_obj_by_lane, car_s);
-
-  if (eState::FOLLOWLANE == state)
-  {
-    // get target vel from vehicle in front
-    FusionData veh_front = FusionData(fus_obj_by_lane.size());
-    getVehiclesFront(veh_front, fus_obj_by_lane, car_s);
-    if (!veh_front[lane].is_default)
+    for (auto fus_obj : veh_data.sensor_fusion)
     {
-      double s_diff = veh_front[lane].s - end_path_s;
-      if (s_diff < dist_margin)
+      int lane_idx = lane_from_d(fus_obj.d);
+      if (0 <= lane_idx)
       {
-        target_vel = lane_speeds[lane];
+        fus_obj_by_lane[lane_idx].push_back(fus_obj);
       }
     }
-  }
 
-  if (!std::equal(lane_speeds.begin() + 1, lane_speeds.end(), lane_speeds.begin()))
-  {
-    auto result = std::max_element(std::begin(lane_speeds), std::end(lane_speeds));
-    lane = std::distance(std::begin(lane_speeds), result);
-  }
+    auto lane_speeds = getLaneSpeeds(fus_obj_by_lane, car_s);
 
-  std::cout << lane_speeds[0] << "; " << lane_speeds[1] << "; " << lane_speeds[0] << "; " << lane << "\n";
+    if (eState::FOLLOWLANE == state)
+    {
+      // get target vel from vehicle in front
+      auto veh_front = getVehiclesFront(fus_obj_by_lane, car_s);
+      if (!veh_front[lane].is_default)
+      {
+        double s_diff = veh_front[lane].s - end_path_s;
+        if (s_diff < dist_margin)
+        {
+          target_vel = lane_speeds[lane];
+        }
+      }
+    }
+
+    if (!std::equal(lane_speeds.begin() + 1, lane_speeds.end(), lane_speeds.begin()))
+    {
+      auto result = std::max_element(std::begin(lane_speeds), std::end(lane_speeds));
+      lane = std::distance(std::begin(lane_speeds), result);
+    }
+
+    std::cout << lane_speeds[0] << "; " << lane_speeds[1] << "; " << lane_speeds[0] << "; " << lane << "\n";
+  }
 
   double ref_x = car_x;
   double ref_y = car_y;
