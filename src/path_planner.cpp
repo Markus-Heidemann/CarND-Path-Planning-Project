@@ -1,201 +1,165 @@
 #include "path_planner.h"
-#include "spline.h"
 #include "Eigen-3.3/Eigen/Dense"
 
 using namespace std;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 
-std::vector<std::vector<double>> PathPlanner::getPath(VehicleData &veh_data,
-                                                      const vector<double> &maps_x,
-                                                      const vector<double> &maps_y,
-                                                      const vector<double> &maps_s,
-                                                      const vector<double> &maps_dx,
-                                                      const vector<double> &maps_dy)
+Trajectory PathPlanner::getPath(VehicleData &veh_data,
+                                const vector<double> &maps_x,
+                                const vector<double> &maps_y,
+                                const vector<double> &maps_s,
+                                const vector<double> &maps_dx,
+                                const vector<double> &maps_dy)
 {
-  int lane = 1;
-  int num_lanes = 3;
-  double v_max = 49.5;
-  double a_max = 0.16;
-  double ref_vel = v_max;
-  double target_vel = v_max;
-  double lane_width = 4.0;
+    MapData map_data = MapData(maps_x, maps_y, maps_s, maps_dx, maps_dy);
 
-  double car_x = veh_data.car_x;
-  double car_y = veh_data.car_y;
-  double car_s = veh_data.car_s;
-  double car_vel = veh_data.car_speed;
-  double car_yaw = deg2rad(veh_data.car_yaw);
-  double end_path_s = veh_data.end_path_s;
+    int curr_lane = 1;
+    double ref_vel = v_max;
+    double target_vel = v_max;
+    double lane_width = 4.0;
 
-  std::vector<double> pts_x;
-  std::vector<double> pts_y;
+    double car_x = veh_data.car_x;
+    double car_y = veh_data.car_y;
+    double car_s = veh_data.car_s;
+    double car_vel = veh_data.car_speed;
+    double car_yaw = deg2rad(veh_data.car_yaw);
+    double end_path_s = veh_data.end_path_s;
 
-  std::vector<double> next_x_vals;
-  std::vector<double> next_y_vals;
+    int prev_path_size = veh_data.previous_path_x.size();
 
-  int prev_path_size = veh_data.previous_path_x.size();
+    double dist_margin = 5.0;
 
-  lane = lane_from_d(veh_data.car_d);
+    m_state = eState::FOLLOWLANE;
+    curr_lane = lane_from_d(veh_data.car_d);
 
-  double dist_margin = 5.0;
-
-  if (0 < veh_data.sensor_fusion.size())
-  {
-    vector<vector<FusionObjData>> fus_obj_by_lane = vector<vector<FusionObjData>>(num_lanes, vector<FusionObjData>());
-
-    for (auto fus_obj : veh_data.sensor_fusion)
+    if (0 < veh_data.sensor_fusion.size())
     {
-      int lane_idx = lane_from_d(fus_obj.d);
-      if (0 <= lane_idx)
-      {
-        fus_obj_by_lane[lane_idx].push_back(fus_obj);
-      }
-    }
+        vector<vector<FusionObjData>> fus_obj_by_lane = vector<vector<FusionObjData>>(num_lanes, vector<FusionObjData>());
 
-    auto lane_speeds = getLaneSpeeds(fus_obj_by_lane, car_s);
-
-    if (eState::FOLLOWLANE == state)
-    {
-      // get target vel from vehicle in front
-      auto veh_front = getVehiclesFront(fus_obj_by_lane, car_s);
-      if (!veh_front[lane].is_default)
-      {
-        double s_diff = veh_front[lane].s - end_path_s;
-        if (s_diff < dist_margin)
+        for (auto fus_obj : veh_data.sensor_fusion)
         {
-          target_vel = lane_speeds[lane];
+            int lane_idx = lane_from_d(fus_obj.d);
+            if (0 <= lane_idx)
+            {
+                fus_obj_by_lane[lane_idx].push_back(fus_obj);
+            }
         }
-      }
+
+        auto lane_speeds = getLaneSpeeds(fus_obj_by_lane, car_s);
+
+        if (eState::FOLLOWLANE == m_state)
+        {
+            // get target vel from vehicle in front
+            auto veh_front = getVehiclesFront(fus_obj_by_lane, car_s);
+            if (!veh_front[curr_lane].is_default)
+            {
+                double s_diff = veh_front[curr_lane].s - end_path_s;
+                if (s_diff < dist_margin)
+                {
+                    target_vel = lane_speeds[curr_lane];
+                }
+            }
+
+            if (!std::equal(lane_speeds.begin() + 1, lane_speeds.end(), lane_speeds.begin()))
+            {
+                auto result = std::max_element(std::begin(lane_speeds), std::end(lane_speeds));
+                m_target_lane = std::distance(std::begin(lane_speeds), result);
+                if (curr_lane != m_target_lane)
+                {
+                    m_state = eState::PREPARELANECHANGE;
+                }
+            }
+        }
+
+        if (eState::PREPARELANECHANGE == m_state)
+        {
+            // check, if target curr_lane is left or right
+            int lane_chg_dir = 0;
+            if (m_target_lane > curr_lane)
+            {
+                lane_chg_dir = 1;
+            }
+            else
+            {
+                lane_chg_dir = -1;
+            }
+
+            m_tmp_target_lane = curr_lane + lane_chg_dir;
+
+            bool lane_chg_possible = checkIfLaneChangePossible(veh_data,
+                                                               fus_obj_by_lane[m_tmp_target_lane],
+                                                               m_tmp_target_lane,
+                                                               lane_speeds[m_tmp_target_lane],
+                                                               map_data);
+
+            if (lane_chg_possible)
+            {
+                curr_lane = m_tmp_target_lane;
+                m_state = eState::CHANGELANE;
+            }
+            else
+            {
+                target_vel = lane_speeds[curr_lane];
+            }
+        }
+
+        if (eState::CHANGELANE == m_state)
+        {
+            if (curr_lane == m_tmp_target_lane)
+            {
+                if (m_rep_ctr > 49)
+                {
+                    m_rep_ctr = 0;
+                    m_state = eState::FOLLOWLANE;
+                }
+                else
+                {
+                    m_rep_ctr++;
+                    target_vel = lane_speeds[curr_lane];
+                }
+            }
+            else
+            {
+                curr_lane = m_tmp_target_lane;
+                target_vel = lane_speeds[curr_lane];
+            }
+        }
     }
 
-    if (!std::equal(lane_speeds.begin() + 1, lane_speeds.end(), lane_speeds.begin()))
+    double ref_x = car_x;
+    double ref_y = car_y;
+    double ref_yaw = car_yaw;
+
+    Trajectory rough_traj = getRoughTrajectoryStart(veh_data);
+
+    // calculate the reference point from where the trajectory is extended
+    if (prev_path_size > 1)
     {
-      auto result = std::max_element(std::begin(lane_speeds), std::end(lane_speeds));
-      lane = std::distance(std::begin(lane_speeds), result);
+        ref_x = veh_data.previous_path_x[prev_path_size - 1];
+        ref_y = veh_data.previous_path_y[prev_path_size - 1];
+        double ref_prev_x = veh_data.previous_path_x[prev_path_size - 2];
+        double ref_prev_y = veh_data.previous_path_y[prev_path_size - 2];
+        ref_yaw = atan2(ref_y - ref_prev_y, ref_x - ref_prev_x);
     }
 
-    std::cout << lane_speeds[0] << "; " << lane_speeds[1] << "; " << lane_speeds[0] << "; " << lane << "\n";
-  }
-
-  double ref_x = car_x;
-  double ref_y = car_y;
-  double ref_yaw = car_yaw;
-
-  if (prev_path_size < 2)
-  {
-    double prev_car_x = car_x - cos(car_yaw);
-    double prev_car_y = car_y - sin(car_yaw);
-
-    pts_x.push_back(prev_car_x);
-    pts_x.push_back(car_x);
-
-    pts_y.push_back(prev_car_y);
-    pts_y.push_back(car_y);
-  }
-  else
-  {
-    ref_x = veh_data.previous_path_x[prev_path_size - 1];
-    ref_y = veh_data.previous_path_y[prev_path_size - 1];
-
-    double ref_prev_x = veh_data.previous_path_x[prev_path_size - 2];
-    double ref_prev_y = veh_data.previous_path_y[prev_path_size - 2];
-
-    ref_yaw = atan2(ref_y - ref_prev_y, ref_x - ref_prev_x);
-
-    pts_x.push_back(ref_prev_x);
-    pts_x.push_back(ref_x);
-
-    pts_y.push_back(ref_prev_y);
-    pts_y.push_back(ref_y);
-  }
-
-  double wp_offset = 30;
-
-  // calculate waypoints 30, 60, and 90 meters ahead of the ego vehicle
-  for (unsigned int i = 0; i < 3; i++)
-  {
-    vector<double> wp = getXY(veh_data.car_s + 30 * (i + 1), 2 + lane * 4, maps_s, maps_x, maps_y);
-    pts_x.push_back(wp[0]);
-    pts_y.push_back(wp[1]);
-  }
-
-  // coordinate transformation to ego vehicle coordinate system
-  for (unsigned int i = 0; i < pts_x.size(); i++)
-  {
-    double shift_x = pts_x[i] - ref_x;
-    double shift_y = pts_y[i] - ref_y;
-
-    pts_x[i] = shift_x * cos(0 - ref_yaw) - shift_y * sin(0 - ref_yaw);
-    pts_y[i] = shift_x * sin(0 - ref_yaw) + shift_y * cos(0 - ref_yaw);
-  }
-
-  tk::spline s;
-
-  s.set_points(pts_x, pts_y);
-
-  for (unsigned int i = 0; i < prev_path_size; i++)
-  {
-    next_x_vals.push_back(veh_data.previous_path_x[i]);
-    next_y_vals.push_back(veh_data.previous_path_y[i]);
-  }
-
-  double target_x = 30.0;
-  double target_y = s(target_x);
-  double target_dist = sqrt(target_x * target_x + target_y * target_y);
-
-  double x_addon = 0;
-
-  for (unsigned int i = 0; i < 50 - prev_path_size; i++)
-  {
-    double curr_vel;
-
-    if (prev_path_size > 0)
+    // calculate waypoints 30, 60, and 90 meters ahead of the ego vehicle
+    double wp_offset = 30;
+    for (unsigned int i = 0; i < 3; i++)
     {
-      double prev_dx = next_x_vals[next_x_vals.size() - 1] - next_x_vals[next_x_vals.size() - 2];
-      double prev_dy = next_y_vals[next_y_vals.size() - 1] - next_y_vals[next_y_vals.size() - 2];
-      curr_vel = (sqrt(prev_dx * prev_dx + prev_dy * prev_dy) / 0.02) * 2.24;
-    }
-    else
-    {
-      curr_vel = car_vel;
+        vector<double> wp = getXY(veh_data.car_s + wp_offset * (i + 1), 2 + curr_lane * 4, maps_s, maps_x, maps_y);
+        rough_traj.x.push_back(wp[0]);
+        rough_traj.y.push_back(wp[1]);
     }
 
-    if (target_vel < curr_vel)
-    {
-      curr_vel -= a_max * 2.24;
-    }
-    else
-    {
-      curr_vel += a_max * 2.24;
-    }
+    Trajectory traj = calculateTrajectory(rough_traj, ref_x, ref_y, ref_yaw, target_vel, 50, veh_data, map_data);
 
-    double N = target_dist / (0.02 * curr_vel / 2.24);
-    double x_point = x_addon + target_x / N;
-    double y_point = s(x_point);
-
-    x_addon = x_point;
-
-    double x_ref = x_point;
-    double y_ref = y_point;
-
-    // back transformation to global coordinate system
-    x_point = (x_ref * cos(ref_yaw) - y_ref * sin(ref_yaw));
-    y_point = (x_ref * sin(ref_yaw) + y_ref * cos(ref_yaw));
-
-    x_point += ref_x;
-    y_point += ref_y;
-
-    next_x_vals.push_back(x_point);
-    next_y_vals.push_back(y_point);
-  }
-
-  return {next_x_vals, next_y_vals};
+    return traj;
 }
 
 vector<double> JMT(vector<double> start, vector<double> end, double T)
 {
-  /*
+    /*
     Calculate the Jerk Minimizing Trajectory that connects the initial state
     to the final state in time T.
 
@@ -219,25 +183,248 @@ vector<double> JMT(vector<double> start, vector<double> end, double T)
     [0.0, 10.0, 0.0, 0.0, 0.0, 0.0]
     */
 
-  MatrixXd A = MatrixXd(3, 3);
-  A << T * T * T, T * T * T * T, T * T * T * T * T,
-      3 * T * T, 4 * T * T * T, 5 * T * T * T * T,
-      6 * T, 12 * T * T, 20 * T * T * T;
+    MatrixXd A = MatrixXd(3, 3);
+    A << T * T * T, T * T * T * T, T * T * T * T * T,
+        3 * T * T, 4 * T * T * T, 5 * T * T * T * T,
+        6 * T, 12 * T * T, 20 * T * T * T;
 
-  MatrixXd B = MatrixXd(3, 1);
-  B << end[0] - (start[0] + start[1] * T + .5 * start[2] * T * T),
-      end[1] - (start[1] + start[2] * T),
-      end[2] - start[2];
+    MatrixXd B = MatrixXd(3, 1);
+    B << end[0] - (start[0] + start[1] * T + .5 * start[2] * T * T),
+        end[1] - (start[1] + start[2] * T),
+        end[2] - start[2];
 
-  MatrixXd Ai = A.inverse();
+    MatrixXd Ai = A.inverse();
 
-  MatrixXd C = Ai * B;
+    MatrixXd C = Ai * B;
 
-  vector<double> result = {start[0], start[1], .5 * start[2]};
-  for (int i = 0; i < C.size(); i++)
-  {
-    result.push_back(C.data()[i]);
-  }
+    vector<double> result = {start[0], start[1], .5 * start[2]};
+    for (int i = 0; i < C.size(); i++)
+    {
+        result.push_back(C.data()[i]);
+    }
 
-  return result;
+    return result;
+}
+
+Trajectory PathPlanner::calculateTrajectory(Trajectory rough_traj,
+                                            double ref_x,
+                                            double ref_y,
+                                            double ref_yaw,
+                                            double target_vel,
+                                            int num_steps,
+                                            const VehicleData &veh_data,
+                                            const MapData &map_data)
+{
+    Trajectory traj;
+
+    int prev_path_size = veh_data.previous_path_x.size();
+
+    // coordinate transformation to ego vehicle coordinate system
+    for (unsigned int i = 0; i < rough_traj.x.size(); i++)
+    {
+        double shift_x = rough_traj.x[i] - ref_x;
+        double shift_y = rough_traj.y[i] - ref_y;
+
+        rough_traj.x[i] = shift_x * cos(0 - ref_yaw) - shift_y * sin(0 - ref_yaw);
+        rough_traj.y[i] = shift_x * sin(0 - ref_yaw) + shift_y * cos(0 - ref_yaw);
+    }
+
+    tk::spline s;
+
+    s.set_points(rough_traj.x, rough_traj.y);
+
+    for (unsigned int i = 0; i < prev_path_size; i++)
+    {
+        traj.x.push_back(veh_data.previous_path_x[i]);
+        traj.y.push_back(veh_data.previous_path_y[i]);
+    }
+
+    double target_x = 30.0;
+    double target_y = s(target_x);
+    double target_dist = sqrt(target_x * target_x + target_y * target_y);
+
+    double x_addon = 0;
+
+    for (unsigned int i = 0; i < num_steps - prev_path_size; i++)
+    {
+        double curr_vel;
+
+        // calculate speed at the end of the current trajectory
+        if (prev_path_size > 0)
+        {
+            double prev_dx = traj.x[traj.x.size() - 1] - traj.x[traj.x.size() - 2];
+            double prev_dy = traj.y[traj.y.size() - 1] - traj.y[traj.y.size() - 2];
+            curr_vel = (sqrt(prev_dx * prev_dx + prev_dy * prev_dy) / 0.02) * 2.24;
+        }
+        else
+        {
+            curr_vel = veh_data.car_speed;
+        }
+
+        if (target_vel < curr_vel)
+        {
+            curr_vel -= a_max * 2.24;
+        }
+        else
+        {
+            curr_vel += a_max * 2.24;
+        }
+
+        double N = target_dist / (0.02 * curr_vel / 2.24);
+        double x_point = x_addon + target_x / N;
+        double y_point = s(x_point);
+
+        x_addon = x_point;
+
+        double x_ref = x_point;
+        double y_ref = y_point;
+
+        // back transformation to global coordinate system
+        x_point = (x_ref * cos(ref_yaw) - y_ref * sin(ref_yaw));
+        y_point = (x_ref * sin(ref_yaw) + y_ref * cos(ref_yaw));
+
+        x_point += ref_x;
+        y_point += ref_y;
+
+        traj.x.push_back(x_point);
+        traj.y.push_back(y_point);
+    }
+    return traj;
+}
+
+std::vector<double> PathPlanner::getLaneSpeeds(const std::vector<FusionData> &veh_in_lanes, const double &s)
+{
+    auto vehicles_front_by_lane = getVehiclesFront(veh_in_lanes, s);
+    std::vector<double> res = std::vector<double>(vehicles_front_by_lane.size(), v_max);
+
+    for (unsigned int i = 0; i < vehicles_front_by_lane.size(); i++)
+    {
+        if (!vehicles_front_by_lane[i].is_default)
+        {
+            res[i] = getVehSpeedMph(vehicles_front_by_lane[i]);
+        }
+    }
+
+    return res;
+}
+
+std::vector<FusionObjData> PathPlanner::getVehiclesFront(const std::vector<FusionData> &veh_in_lanes, const double &s)
+{
+    std::vector<FusionObjData> ret = std::vector<FusionObjData>(veh_in_lanes.size());
+    for (unsigned int i = 0; i < veh_in_lanes.size(); i++)
+    {
+        auto curr_lane = veh_in_lanes[i];
+        double min_dist = INF;
+        double s_diff = 0;
+
+        for (auto &veh : curr_lane)
+        {
+            s_diff = veh.s - s;
+            if (s_diff >= 0 && s_diff < min_dist)
+            {
+                ret[i] = veh;
+            }
+        }
+    }
+    return ret;
+}
+
+Predictions PathPlanner::getTrajectoryPredictions(const FusionData &vehicles, int num_steps, MapData map_data)
+{
+    Predictions pred;
+    for (auto &veh : vehicles)
+    {
+        // predict a rough trajectory based on the current position and velocity
+        Trajectory traj;
+        double s = veh.s;
+        double vel = getVehSpeedMs(veh);
+        for (unsigned int i = 0; i < num_steps; i++)
+        {
+            s += (i + 1) * vel * 0.02;
+            vector<double> xy = getXY(s, veh.d, map_data.maps_s, map_data.maps_x, map_data.maps_y);
+            traj.x.push_back(xy[0]);
+            traj.y.push_back(xy[1]);
+        }
+        pred.push_back(traj);
+    }
+    return pred;
+}
+
+bool PathPlanner::checkIfLaneChangePossible(const VehicleData &veh_data,
+                                            const FusionData &vehicles,
+                                            int target_lane,
+                                            double target_vel,
+                                            const MapData &map_data)
+{
+    bool res = true;
+
+    Predictions predictions = getTrajectoryPredictions(vehicles, 200, map_data);
+
+    // calculate planned ego trajectory
+    // get start of planned ego trajectory from the end of the previously planned trajectory
+    Trajectory planned_ego_traj;
+    int prev_path_size = veh_data.previous_path_x.size();
+    double ref_x = veh_data.previous_path_x[prev_path_size - 1];
+    double ref_y = veh_data.previous_path_y[prev_path_size - 1];
+    double ref_prev_x = veh_data.previous_path_x[prev_path_size - 2];
+    double ref_prev_y = veh_data.previous_path_y[prev_path_size - 2];
+    double ref_yaw = atan2(ref_y - ref_prev_y, ref_x - ref_prev_x);
+
+    Trajectory rough_traj = getRoughTrajectoryStart(veh_data);
+
+    // calculate waypoints 30, 60, and 90 meters ahead of the ego vehicle
+    double wp_offset = 30;
+    for (unsigned int i = 0; i < 3; i++)
+    {
+        vector<double> wp = getXY(veh_data.car_s + wp_offset * (i + 1),
+                                    2 + target_lane * 4,
+                                    map_data.maps_s,
+                                    map_data.maps_x,
+                                    map_data.maps_y);
+        rough_traj.x.push_back(wp[0]);
+        rough_traj.y.push_back(wp[1]);
+    }
+
+    Trajectory ego_traj = calculateTrajectory(rough_traj, ref_x, ref_y, ref_yaw, target_vel, 200, veh_data, map_data);
+
+    for (auto &pred_traj : predictions)
+    {
+        res = res && trajToClose(pred_traj, ego_traj, 2.0);
+    }
+
+    return res;
+}
+
+Trajectory PathPlanner::getRoughTrajectoryStart(const VehicleData &veh_data)
+{
+    Trajectory traj;
+
+    int prev_path_size = veh_data.previous_path_x.size();
+
+    if (prev_path_size < 2)
+    {
+        double prev_car_x = veh_data.car_x - cos(veh_data.car_yaw);
+        double prev_car_y = veh_data.car_y - sin(veh_data.car_yaw);
+
+        traj.x.push_back(prev_car_x);
+        traj.x.push_back(veh_data.car_x);
+
+        traj.y.push_back(prev_car_y);
+        traj.y.push_back(veh_data.car_y);
+    }
+    else
+    {
+        double ref_x = veh_data.previous_path_x[prev_path_size - 1];
+        double ref_y = veh_data.previous_path_y[prev_path_size - 1];
+
+        double ref_prev_x = veh_data.previous_path_x[prev_path_size - 2];
+        double ref_prev_y = veh_data.previous_path_y[prev_path_size - 2];
+
+        traj.x.push_back(ref_prev_x);
+        traj.x.push_back(ref_x);
+
+        traj.y.push_back(ref_prev_y);
+        traj.y.push_back(ref_y);
+    }
+    return traj;
 }
