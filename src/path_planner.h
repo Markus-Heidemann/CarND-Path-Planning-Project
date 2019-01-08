@@ -9,7 +9,7 @@ class PathPlanner
 {
   public:
 
-    PathPlanner() : m_rep_ctr(0) {}
+    PathPlanner() : m_rep_ctr(0), m_state(eState::FOLLOWLANE) {}
 
     /*!
      * main function of PathPlanner, that returns the trajectory of the ego vehicle based on
@@ -71,6 +71,8 @@ class PathPlanner
      * way, that make the connection between the previous trajectory and the new one smooth.
      */
     Trajectory getRoughTrajectoryStart(const VehicleData &veh_data);
+
+    double setACCVel(vector<FusionData> fus_obj_by_lane, int curr_lane, double car_s,double end_path_s);
 
   private:
     enum eState

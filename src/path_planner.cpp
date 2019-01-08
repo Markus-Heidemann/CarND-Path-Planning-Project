@@ -27,7 +27,6 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
 
     int prev_path_size = veh_data.previous_path_x.size();
 
-    m_state = eState::FOLLOWLANE;
     curr_lane = lane_from_d(veh_data.car_d);
 
     std::vector<double> lane_speeds = std::vector<double>(num_lanes, v_max);
@@ -53,15 +52,7 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
         if (eState::FOLLOWLANE == m_state)
         {
             // get target vel from vehicle in front
-            auto veh_front = getVehiclesFront(fus_obj_by_lane, car_s);
-            if (!veh_front[curr_lane].is_default)
-            {
-                double s_diff = veh_front[curr_lane].s - end_path_s;
-                if (s_diff < dist_margin)
-                {
-                    target_vel = lane_speeds[curr_lane];
-                }
-            }
+            target_vel = setACCVel(fus_obj_by_lane, curr_lane, car_s, veh_data.end_path_s);
 
             if (!std::equal(lane_speeds.begin() + 1, lane_speeds.end(), lane_speeds.begin()))
             {
@@ -70,6 +61,7 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
                 if (curr_lane != m_target_lane)
                 {
                     m_state = eState::PREPARELANECHANGE;
+                    std::cout << "PREPARELANECHANGE: " << m_target_lane << "\n";
                 }
             }
         }
@@ -102,10 +94,11 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
             {
                 curr_lane = m_tmp_target_lane;
                 m_state = eState::CHANGELANE;
+                std::cout << "CHANGELANE\n";
             }
             else
             {
-                target_vel = lane_speeds[curr_lane];
+                target_vel = setACCVel(fus_obj_by_lane, curr_lane, car_s, veh_data.end_path_s);
             }
         }
 
@@ -120,17 +113,18 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
                 {
                     m_rep_ctr = 0;
                     m_state = eState::FOLLOWLANE;
+                    std::cout << "FOLLOWLANE\n";
                 }
                 else
                 {
                     m_rep_ctr++;
-                    target_vel = lane_speeds[curr_lane];
+                    target_vel = setACCVel(fus_obj_by_lane, curr_lane, car_s, veh_data.end_path_s);
                 }
             }
             else
             {
                 curr_lane = m_tmp_target_lane;
-                target_vel = lane_speeds[curr_lane];
+                target_vel = setACCVel(fus_obj_by_lane, curr_lane, car_s, veh_data.end_path_s);
             }
         }
     }
@@ -340,7 +334,7 @@ std::vector<FusionObjData> PathPlanner::getVehiclesFront(const std::vector<Fusio
 Predictions PathPlanner::getTrajectoryPredictions(const FusionData &vehicles, int num_steps, MapData map_data)
 {
     Predictions pred;
-    for (auto &veh : vehicles)
+    for (auto const &veh : vehicles)
     {
         // predict a rough trajectory based on the current position and velocity
         Trajectory traj;
@@ -395,9 +389,9 @@ bool PathPlanner::checkIfLaneChangePossible(const VehicleData &veh_data,
 
     Trajectory ego_traj = calculateTrajectory(rough_traj, ref_x, ref_y, ref_yaw, target_vel, 200, veh_data, map_data);
 
-    for (auto &pred_traj : predictions)
+    for (auto const &pred_traj : predictions)
     {
-        res = res && trajToClose(pred_traj, ego_traj, 2.0);
+        res = res && !trajToClose(pred_traj, ego_traj, 2.0);
     }
 
     return res;
@@ -435,4 +429,23 @@ Trajectory PathPlanner::getRoughTrajectoryStart(const VehicleData &veh_data)
         traj.y.push_back(ref_y);
     }
     return traj;
+}
+
+double PathPlanner::setACCVel(vector<FusionData> fus_obj_by_lane,
+                                int curr_lane,
+                                double car_s,
+                                double end_path_s)
+{
+    double target_vel = v_max;
+    auto lane_speeds = getLaneSpeeds(fus_obj_by_lane, car_s);
+    auto veh_front = getVehiclesFront(fus_obj_by_lane, car_s);
+    if (!veh_front[curr_lane].is_default)
+    {
+        double s_diff = veh_front[curr_lane].s - end_path_s;
+        if (s_diff < dist_margin)
+        {
+            target_vel = lane_speeds[curr_lane];
+        }
+    }
+    return target_vel;
 }
