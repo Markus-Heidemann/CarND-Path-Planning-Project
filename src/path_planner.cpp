@@ -17,7 +17,6 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
     int curr_lane = 1;
     double ref_vel = v_max;
     double target_vel = v_max;
-    double lane_width = 4.0;
 
     double car_x = veh_data.car_x;
     double car_y = veh_data.car_y;
@@ -28,10 +27,10 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
 
     int prev_path_size = veh_data.previous_path_x.size();
 
-    double dist_margin = 5.0;
-
     m_state = eState::FOLLOWLANE;
     curr_lane = lane_from_d(veh_data.car_d);
+
+    std::vector<double> lane_speeds = std::vector<double>(num_lanes, v_max);
 
     if (0 < veh_data.sensor_fusion.size())
     {
@@ -46,8 +45,11 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
             }
         }
 
-        auto lane_speeds = getLaneSpeeds(fus_obj_by_lane, car_s);
+        lane_speeds = getLaneSpeeds(fus_obj_by_lane, car_s);
 
+        /*
+         *  FOLLOWLANE
+         */
         if (eState::FOLLOWLANE == m_state)
         {
             // get target vel from vehicle in front
@@ -72,6 +74,9 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
             }
         }
 
+        /*
+         *  PREPARELANECHANGE
+         */
         if (eState::PREPARELANECHANGE == m_state)
         {
             // check, if target curr_lane is left or right
@@ -104,6 +109,9 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
             }
         }
 
+        /*
+         *  CHANGELANE
+         */
         if (eState::CHANGELANE == m_state)
         {
             if (curr_lane == m_tmp_target_lane)
