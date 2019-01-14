@@ -342,7 +342,7 @@ Predictions PathPlanner::getTrajectoryPredictions(const FusionData &vehicles, in
         double vel = getVehSpeedMs(veh);
         for (unsigned int i = 0; i < num_steps; i++)
         {
-            s += (i + 1) * vel * 0.02;
+            s += vel * 0.02;
             vector<double> xy = getXY(s, veh.d, map_data.maps_s, map_data.maps_x, map_data.maps_y);
             traj.x.push_back(xy[0]);
             traj.y.push_back(xy[1]);
@@ -391,7 +391,7 @@ bool PathPlanner::checkIfLaneChangePossible(const VehicleData &veh_data,
 
     for (auto const &pred_traj : predictions)
     {
-        res = res && !trajToClose(pred_traj, ego_traj, 2.0);
+        res = res && !trajToClose(pred_traj, ego_traj, 7.0);
     }
 
     return res;

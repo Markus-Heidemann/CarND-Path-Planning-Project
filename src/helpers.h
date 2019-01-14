@@ -284,7 +284,7 @@ inline bool trajToClose(Trajectory t1, Trajectory t2, double thresh)
     int min_size = min(t1.x.size(), t2.x.size());
     for (unsigned int i = 0; i < min_size; i++)
     {
-        if (thresh < distance(t1.x[i], t1.y[i], t2.x[i], t2.y[i]))
+        if (thresh > distance(t1.x[i], t1.y[i], t2.x[i], t2.y[i]))
         {
             res = true;
         }
