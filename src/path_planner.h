@@ -74,6 +74,8 @@ class PathPlanner
 
     double setACCVel(vector<FusionData> fus_obj_by_lane, int curr_lane, double car_s,double end_path_s);
 
+    vector<int> getFastestLane(std::vector<double> lane_speeds);
+
   private:
     enum eState
     {

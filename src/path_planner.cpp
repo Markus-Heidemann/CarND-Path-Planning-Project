@@ -45,25 +45,37 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
         }
 
         lane_speeds = getLaneSpeeds(fus_obj_by_lane, car_s);
+        auto fastest_lanes = getFastestLane(lane_speeds);
+        assert(fastest_lanes.size() > 0);
 
         /*
          *  FOLLOWLANE
          */
         if (eState::FOLLOWLANE == m_state)
         {
+            // for (unsigned int i = 0; i < fastest_lanes.size(); i++)
+            // {
+            //     std::cout << i << ": " << fastest_lanes[i] << "\n";
+            // }
+            // check, if current lane is not one of the fastest lanes
+            if (std::find(fastest_lanes.begin(), fastest_lanes.end(), curr_lane) == fastest_lanes.end())
+            {
+                // get the closest of the fastest lane
+                int min_diff = 999; //INT_INF;
+                for (const auto& poss_lane : fastest_lanes)
+                {
+                    int diff = abs(poss_lane - curr_lane);
+                    if (diff < min_diff)
+                    {
+                        min_diff = diff;
+                        m_target_lane = poss_lane;
+                    }
+                }
+                m_state = eState::PREPARELANECHANGE;
+                std::cout << "PREPARELANECHANGE: " << m_target_lane << "\n";
+            }
             // get target vel from vehicle in front
             target_vel = setACCVel(fus_obj_by_lane, curr_lane, car_s, veh_data.end_path_s);
-
-            if (!std::equal(lane_speeds.begin() + 1, lane_speeds.end(), lane_speeds.begin()))
-            {
-                auto result = std::max_element(std::begin(lane_speeds), std::end(lane_speeds));
-                m_target_lane = std::distance(std::begin(lane_speeds), result);
-                if (curr_lane != m_target_lane)
-                {
-                    m_state = eState::PREPARELANECHANGE;
-                    std::cout << "PREPARELANECHANGE: " << m_target_lane << "\n";
-                }
-            }
         }
 
         /*
@@ -98,8 +110,14 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
             }
             else
             {
-                target_vel = setACCVel(fus_obj_by_lane, curr_lane, car_s, veh_data.end_path_s);
+                // reevaluate, if lane change is necessary
+                if (std::find(fastest_lanes.begin(), fastest_lanes.end(), curr_lane) != fastest_lanes.end())
+                {
+                    m_state = eState::FOLLOWLANE;
+                    std::cout << "FOLLOWLANE\n";
+                }
             }
+            target_vel = setACCVel(fus_obj_by_lane, curr_lane, car_s, veh_data.end_path_s);
         }
 
         /*
@@ -118,14 +136,13 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
                 else
                 {
                     m_rep_ctr++;
-                    target_vel = setACCVel(fus_obj_by_lane, curr_lane, car_s, veh_data.end_path_s);
                 }
             }
             else
             {
                 curr_lane = m_tmp_target_lane;
-                target_vel = setACCVel(fus_obj_by_lane, curr_lane, car_s, veh_data.end_path_s);
             }
+            target_vel = 0.9 * setACCVel(fus_obj_by_lane, curr_lane, car_s, veh_data.end_path_s);
         }
     }
 
@@ -448,4 +465,18 @@ double PathPlanner::setACCVel(vector<FusionData> fus_obj_by_lane,
         }
     }
     return target_vel;
+}
+
+vector<int> PathPlanner::getFastestLane(vector<double> lane_speeds)
+{
+    vector<int> res;
+    double max_speed = *std::max_element(lane_speeds.begin(), lane_speeds.end());
+    for (unsigned int i = 0; i < lane_speeds.size(); i++)
+    {
+        if (lane_speeds[i] == max_speed)
+        {
+            res.push_back(i);
+        }
+    }
+    return res;
 }
