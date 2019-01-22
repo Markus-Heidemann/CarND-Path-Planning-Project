@@ -292,3 +292,35 @@ inline bool trajToClose(Trajectory t1, Trajectory t2, double thresh)
     }
     return res;
 }
+
+// TODO make faster by returning look-up table of arc length, so that
+// not all the values have to be recalculated in each iteration on path planner
+inline double x_for_arc_length(const tk::spline &s, double arc_length, double x_inc)
+{
+    double res = 0;
+
+    double cumm_arc_length = 0;
+    double curr_x = x_inc;
+    double prev_x = 0;
+    double prev_cumm_arc_length = 0;
+
+    while (cumm_arc_length < arc_length)
+    {
+        double prev_y = s(prev_x);
+        double curr_y = s(curr_x);
+        cumm_arc_length += distance(prev_x, prev_y, curr_x, curr_y);
+        prev_x = curr_x;
+        prev_cumm_arc_length = cumm_arc_length;
+        curr_x += x_inc;
+    }
+
+    if (abs(prev_cumm_arc_length - arc_length) < abs(cumm_arc_length - arc_length))
+    {
+        res = prev_x;
+    }
+    else
+    {
+        res = curr_x;
+    }
+    return res;
+}
