@@ -9,7 +9,7 @@ class PathPlanner
 {
   public:
 
-    PathPlanner() : m_rep_ctr(0), m_state(eState::FOLLOWLANE) {}
+    PathPlanner() : m_rep_ctr(0), m_slc_ctr(0), m_wp_offset(30.0), m_state(eState::FOLLOWLANE) {}
 
     /*!
      * main function of PathPlanner, that returns the trajectory of the ego vehicle based on
@@ -41,13 +41,17 @@ class PathPlanner
      * Returns the speed in a lane based on the longitudinally nearest car in the lane in front of
      * the ego vehicle
      */
-    std::vector<double> getLaneSpeeds(const std::vector<FusionData> &veh_in_lanes, const double &s);
+    std::vector<double> getLaneSpeeds(const std::vector<FusionData> &veh_in_lanes,
+                                      const double &s,
+                                      const double max_dist = INF);
 
     /*!
      * Gets the vehicles in each lane, that are longitudinally closest to and in front of the ego
      * vehicle
      */
-    std::vector<FusionObjData> getVehiclesFront(const std::vector<FusionData> &veh_in_lanes, const double &s);
+    std::vector<FusionObjData> getVehiclesFront(const std::vector<FusionData> &veh_in_lanes,
+                                                const double &s,
+                                                const double max_dist = INF);
 
     /*!
      * Predicts a trajectory of each non-ego vehicle based on its current speed. The function
@@ -81,6 +85,7 @@ class PathPlanner
     {
         FOLLOWLANE,
         PREPARELANECHANGE,
+        STARTLANECHANGE,
         CHANGELANE
     };
 
@@ -88,4 +93,8 @@ class PathPlanner
     int m_target_lane;
     int m_tmp_target_lane;
     int m_rep_ctr;
+    int m_slc_ctr;
+    double m_wp_offset;
+
+    bool start_of_lane_change;
 };
