@@ -9,7 +9,7 @@ class PathPlanner
 {
   public:
 
-    PathPlanner() : m_rep_ctr(0), m_slc_ctr(0), m_wp_offset(30.0), m_state(eState::FOLLOWLANE) {}
+    PathPlanner() : m_rep_ctr(0), m_wp_offset(30.0), m_state(eState::FOLLOWLANE) {}
 
     /*!
      * main function of PathPlanner, that returns the trajectory of the ego vehicle based on
@@ -76,8 +76,16 @@ class PathPlanner
      */
     Trajectory getRoughTrajectoryStart(const VehicleData &veh_data);
 
+    /*!
+     * Calculates the target velocity for the ego vehicle based on the velocity of vehicles in front
+     * in the same lane. The name ACC is inspired by 'Adaptive Cruise Control', since this function
+     * basically implements the same functionality
+     */
     double setACCVel(vector<FusionData> fus_obj_by_lane, int curr_lane, double car_s,double end_path_s);
 
+    /*!
+     * Returns the indices of the lanes, that allow the highest speed.
+     */
     vector<int> getFastestLane(std::vector<double> lane_speeds);
 
   private:
@@ -85,16 +93,19 @@ class PathPlanner
     {
         FOLLOWLANE,
         PREPARELANECHANGE,
-        STARTLANECHANGE,
         CHANGELANE
     };
 
+    // Current state machine state
     eState m_state;
+    // Index of lane, that the ego is trying to drive on
     int m_target_lane;
+    // Intermediate target lane, if current lane and actual target lane are not right next to each
+    // other
     int m_tmp_target_lane;
+    // After a lane change, this counter has to run out, before a new lane change is allowed
     int m_rep_ctr;
-    int m_slc_ctr;
+    // Waypoint offset, which defines the distance between the support points for the trajectory
+    // spline
     double m_wp_offset;
-
-    bool start_of_lane_change;
 };

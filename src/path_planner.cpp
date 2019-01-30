@@ -30,6 +30,16 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
 
     curr_lane = lane_from_d(veh_data.car_d);
 
+    if (car_vel < 40.0)
+    {
+        m_wp_offset = 35.0;
+    }
+    else
+    {
+        m_wp_offset = 50.0;
+    }
+
+
     std::vector<double> lane_speeds = std::vector<double>(num_lanes, v_max);
 
     if (0 < veh_data.sensor_fusion.size())
@@ -110,8 +120,8 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
             if (lane_chg_possible)
             {
                 lane_for_traj = m_tmp_target_lane;
-                m_state = eState::STARTLANECHANGE;
-                std::cout << "STARTLANECHANGE\n";
+                m_state = eState::CHANGELANE;
+                std::cout << "CHANGELANE\n";
             }
             else
             {
@@ -123,29 +133,6 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
                 }
             }
             target_vel = setACCVel(fus_obj_by_lane, curr_lane, car_s, veh_data.end_path_s);
-        }
-
-        /*
-         *  STARTLANECHANGE
-         */
-        if ((eState::STARTLANECHANGE == m_state) && first_state_evalution)
-        {
-            m_state = eState::CHANGELANE;
-            std::cout << "CHANGELANE\n";
-
-            // first_state_evalution = false;
-            // if (m_slc_ctr > 2)
-            // {
-            //     m_slc_ctr = 0;
-            //     m_state = eState::CHANGELANE;
-            //     std::cout << "CHANGELANE\n";
-            // }
-            // else
-            // {
-            //     lane_for_traj = m_tmp_target_lane - (m_tmp_target_lane - curr_lane) * 0.75;
-            //     m_slc_ctr++;
-            // }
-            // target_vel = setACCVel(fus_obj_by_lane, curr_lane, car_s, veh_data.end_path_s);
         }
 
         /*
@@ -171,6 +158,7 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
             else
             {
                 lane_for_traj = m_tmp_target_lane;
+                m_wp_offset = 50.0;
             }
             target_vel = 1.0 * setACCVel(fus_obj_by_lane, curr_lane, car_s, veh_data.end_path_s);
         }
@@ -193,21 +181,6 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
     }
 
     // calculate waypoints 30, 60, and 90 meters ahead of the ego vehicle
-    if (car_vel < 40)
-        m_wp_offset = 35;
-    else
-    {
-        m_wp_offset = 50;
-    }
-
-
-    // if (eState::CHANGELANE == m_state)
-    // {
-    //     vector<double> wp_half_way = getXY(veh_data.car_s + m_wp_offset * 0.5, 2 + curr_lane * 4 + (lane_for_traj - curr_lane) * 2, maps_s, maps_x, maps_y);
-    //     rough_traj.x.push_back(wp_half_way[0]);
-    //     rough_traj.y.push_back(wp_half_way[1]);
-    // }
-
     for (unsigned int i = 0; i < 2; i++)
     {
         vector<double> wp = getXY(veh_data.car_s + m_wp_offset * (i + 1), 2 + lane_for_traj * 4, maps_s, maps_x, maps_y);
@@ -339,14 +312,7 @@ Trajectory PathPlanner::calculateTrajectory(Trajectory rough_traj,
         double x_point = x_addon + target_x / N;
         double y_point = s(x_point);
 
-        // double d_arc_len = 0.02 * curr_vel / 2.24;
-        // arc_len_addon += d_arc_len;
-
         x_addon = x_point;
-
-        // double x_point = x_for_arc_length(s, arc_len_addon, 0.001);
-        // double y_point = s(x_point);
-        // std::cout << "x_point: " << x_point << ", y_point: " << y_point << ", arc_len_addon: " << arc_len_addon << "\n";
 
         double x_ref = x_point;
         double y_ref = y_point;
@@ -432,8 +398,9 @@ bool PathPlanner::checkIfLaneChangePossible(const VehicleData &veh_data,
                                             const MapData &map_data)
 {
     bool res = true;
+    int num_predicted_steps = 100;
 
-    Predictions predictions = getTrajectoryPredictions(vehicles, 200, map_data);
+    Predictions predictions = getTrajectoryPredictions(vehicles, num_predicted_steps, map_data);
 
     // calculate planned ego trajectory
     // get start of planned ego trajectory from the end of the previously planned trajectory
@@ -447,11 +414,11 @@ bool PathPlanner::checkIfLaneChangePossible(const VehicleData &veh_data,
 
     Trajectory rough_traj = getRoughTrajectoryStart(veh_data);
 
-    // calculate waypoints 30, 60, and 90 meters ahead of the ego vehicle
-    double wp_offset = 30;
+    // calculate waypoints 30, 60, and 90 (depending on current value of m_wp_offset) meters
+    // ahead of the ego vehicle
     for (unsigned int i = 0; i < 3; i++)
     {
-        vector<double> wp = getXY(veh_data.car_s + wp_offset * (i + 1),
+        vector<double> wp = getXY(veh_data.car_s + m_wp_offset * (i + 1),
                                     2 + target_lane * 4,
                                     map_data.maps_s,
                                     map_data.maps_x,
@@ -460,7 +427,14 @@ bool PathPlanner::checkIfLaneChangePossible(const VehicleData &veh_data,
         rough_traj.y.push_back(wp[1]);
     }
 
-    Trajectory ego_traj = calculateTrajectory(rough_traj, ref_x, ref_y, ref_yaw, target_vel, 200, veh_data, map_data);
+    Trajectory ego_traj = calculateTrajectory(rough_traj,
+                                                ref_x,
+                                                ref_y,
+                                                ref_yaw,
+                                                target_vel,
+                                                num_predicted_steps,
+                                                veh_data,
+                                                map_data);
 
     for (auto const &pred_traj : predictions)
     {
@@ -509,11 +483,13 @@ double PathPlanner::setACCVel(vector<FusionData> fus_obj_by_lane,
     if (!veh_front[curr_lane].is_default)
     {
         double s_diff = veh_front[curr_lane].s - end_path_s;
+        std::cout << "s_diff: " << s_diff << "\n";
         if (s_diff < dist_margin)
         {
-            target_vel = lane_speeds[curr_lane];
+            target_vel = lane_speeds[curr_lane] + s_diff;
         }
     }
+    target_vel = min(target_vel, v_max);
     return target_vel;
 }
 
