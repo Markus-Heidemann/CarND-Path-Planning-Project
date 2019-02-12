@@ -44,7 +44,8 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
 
     if (0 < veh_data.sensor_fusion.size())
     {
-        vector<vector<FusionObjData>> fus_obj_by_lane = vector<vector<FusionObjData>>(num_lanes, vector<FusionObjData>());
+        vector<vector<FusionObjData>> fus_obj_by_lane =
+                vector<vector<FusionObjData>>(num_lanes, vector<FusionObjData>());
 
         for (auto fus_obj : veh_data.sensor_fusion)
         {
@@ -160,7 +161,7 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
                 lane_for_traj = m_tmp_target_lane;
                 m_wp_offset = 50.0;
             }
-            target_vel = 1.0 * setACCVel(fus_obj_by_lane, curr_lane, car_s, veh_data.end_path_s);
+            target_vel = setACCVel(fus_obj_by_lane, curr_lane, car_s, veh_data.end_path_s);
         }
     }
 
@@ -183,7 +184,11 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
     // calculate waypoints 30, 60, and 90 meters ahead of the ego vehicle
     for (unsigned int i = 0; i < 2; i++)
     {
-        vector<double> wp = getXY(veh_data.car_s + m_wp_offset * (i + 1), 2 + lane_for_traj * 4, maps_s, maps_x, maps_y);
+        vector<double> wp = getXY(veh_data.car_s + m_wp_offset * (i + 1),
+                                    2 + lane_for_traj * lane_width,
+                                    maps_s,
+                                    maps_x,
+                                    maps_y);
         rough_traj.x.push_back(wp[0]);
         rough_traj.y.push_back(wp[1]);
     }
@@ -193,6 +198,7 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
     return traj;
 }
 
+// JMT() is not used in the current implementation
 vector<double> JMT(vector<double> start, vector<double> end, double T)
 {
     /*
@@ -419,7 +425,7 @@ bool PathPlanner::checkIfLaneChangePossible(const VehicleData &veh_data,
     for (unsigned int i = 0; i < 3; i++)
     {
         vector<double> wp = getXY(veh_data.car_s + m_wp_offset * (i + 1),
-                                    2 + target_lane * 4,
+                                    2 + target_lane * lane_width,
                                     map_data.maps_s,
                                     map_data.maps_x,
                                     map_data.maps_y);

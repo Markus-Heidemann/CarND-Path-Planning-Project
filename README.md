@@ -139,3 +139,57 @@ still be compilable with cmake and make./
 
 ## Reflection on code model for path planning
 
+### Generation of a smooth trajectory
+
+As suggested in the project's Q&A video, the trajectory is generated using splines. The function
+```calculateTrajectory()``` (path_planner.cpp) receives a rough trajectory, which contains the last two waypoints of
+the previous trajectory and three more waypoints, which are located in the target lane. The distance of these three
+waypoints is dependant of the speed of the ego vehicle. If the vehicle drives slower than 40mph, the distance is 35m,
+otherwise it's 50m.
+
+The spline function then fits a spline through these waypoints to generate a smooth trajectory. As shown in the Q&A
+video, the waypoints smooth trajectory are then generated along the spline. The distance depends on the vehicle speed.
+The vehicle can also accelerate or decelerate, during the calculation of the smooth trajectory.
+
+### Planning and Behaviour
+
+The behaviour of the vehicle is controlled by a state machine, which has three states. The state machine sets the target
+lane and target velocity of the ego vehicle. These are used as inputs by the trajectory generation.
+
+The state machine states are:
+
+1. Follow lane (path_planner.cpp: line 68)
+2. Prepare lane change (path_planner.cpp: line 97)
+3. Change lane (path_planner.cpp: line 142)
+
+#### Follow lane
+This state is the initial state of the state machine. When this state is active, the planner checks, whether the current
+ego lane is the fastest of all lanes. The lane speed is determined by the longitudinally nearest vehicle in front of the
+ego vehicle in each lane. If the current ego lane is the fastest, then the target lane is set to the ego lane and the
+target speed is set to the maximum speed, if no other vehicle is in front, or to the speed of the vehicle in the same
+lane in front of the ego.
+
+If the current lane is not the fastest, the state machine will set the fastest lane as the target lane and chnage into
+the _Prepare lane change state_.
+
+#### Prepare lane change
+While this state is active, the planner checks, if a lane change in the direction of the target lane is possible. In
+order to do so, it will "predict" the movement of all other vehicles on the road. The prediction is currently
+implemented very simply (see path_planner.cpp: line 379 ```getTrajectoryPredictions()```). It is assumed, that the
+vehicles drive with constant speed and don't perform lane changes.
+Based on these assumptions, a trajectory for the next 2 seconds is calculated. The planner then checks, if the planned
+ego trajectory comes to close to the trajectory of one of the vehicles (in this implementation a threshold of 7.0 m is
+used). If no trajectory is to close, the state machine will switch into the _Chnage lane_ state. Otherwise it will stay
+in the _Prepare lane change_ state.
+
+In case the ego lane becomes the fastest lane, while _Prepare lane change_ is active, it is also possible for the state
+machine to change back to _Follow lane_ without performing a lane change.
+
+#### Change lane
+When in _Change lane_ state, the vehicle will change from the current lane to an adjacent target lane. After the ego
+vehicle has reached the target lane, the state will stay active for another second in order to avoid the car to "bounce"
+around between lanes and to guarantee a smoother driving behaviour. Afterwards the state machine will switch to the
+_Follow lane_ state.
+
+In this state the distance between the waypoints of the rough trajectory is set to 50m, in order to avoid high jerk and
+accelaration values during the lane change.

@@ -256,6 +256,9 @@ inline vector<double> getXY(double s,
     return {x, y};
 }
 
+/*
+ * Get's the lane index of the current lane based on the Frenet's d value
+ */
 inline int lane_from_d(double d, int num_lanes = 3, double lane_width = 4.0)
 {
     int res = -1;
@@ -293,6 +296,9 @@ inline bool trajToClose(Trajectory t1, Trajectory t2, double thresh)
     return res;
 }
 
+/*
+ * NOT USED IN THE CURRENT IMPLEMENTATION
+ */
 // TODO make faster by returning look-up table of arc length, so that
 // not all the values have to be recalculated in each iteration on path planner
 inline double x_for_arc_length(const tk::spline &s, double arc_length, double x_inc)
