@@ -489,7 +489,6 @@ double PathPlanner::setACCVel(vector<FusionData> fus_obj_by_lane,
     if (!veh_front[curr_lane].is_default)
     {
         double s_diff = veh_front[curr_lane].s - end_path_s;
-        std::cout << "s_diff: " << s_diff << "\n";
         if (s_diff < dist_margin)
         {
             target_vel = lane_speeds[curr_lane] + s_diff;
