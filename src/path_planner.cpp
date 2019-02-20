@@ -30,13 +30,13 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
 
     curr_lane = lane_from_d(veh_data.car_d);
 
-    if (car_vel < 40.0)
+    if (car_vel < 10.0)
     {
-        m_wp_offset = 35.0;
+        m_wp_offset = 10.0;
     }
     else
     {
-        m_wp_offset = 50.0;
+        m_wp_offset = car_vel;
     }
 
 
@@ -161,7 +161,7 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
                 lane_for_traj = m_tmp_target_lane;
                 m_wp_offset = 50.0;
             }
-            target_vel = setACCVel(fus_obj_by_lane, curr_lane, car_s, veh_data.end_path_s);
+            target_vel = setACCVel(fus_obj_by_lane, lane_for_traj, car_s, veh_data.end_path_s);
         }
     }
 
@@ -286,8 +286,6 @@ Trajectory PathPlanner::calculateTrajectory(Trajectory rough_traj,
     double target_dist = sqrt(target_x * target_x + target_y * target_y);
 
     double x_addon = 0;
-
-    // double arc_len_addon = 0;
 
     for (unsigned int i = 0; i < num_steps - prev_path_size; i++)
     {
@@ -446,6 +444,20 @@ bool PathPlanner::checkIfLaneChangePossible(const VehicleData &veh_data,
     {
         res = res && !trajToClose(pred_traj, ego_traj, 7.0);
     }
+
+    // check, if a sharp curve is coming up
+    // in order to avoid exceeding the maximum jerk, no lane changes are being done in sharp curves
+    vector<double> wp_0 = getXY(veh_data.car_s + 50,
+                                0,
+                                map_data.maps_s,
+                                map_data.maps_x,
+                                map_data.maps_y);
+    vector<double> wp_1 = getXY(veh_data.car_s + 100,
+                                0,
+                                map_data.maps_s,
+                                map_data.maps_x,
+                                map_data.maps_y);
+    
 
     return res;
 }

@@ -320,6 +320,7 @@ inline double x_for_arc_length(const tk::spline &s, double arc_length, double x_
         curr_x += x_inc;
     }
 
+    // return the previous or the current arc length, depending in which is closer to the desired one
     if (abs(prev_cumm_arc_length - arc_length) < abs(cumm_arc_length - arc_length))
     {
         res = prev_x;
