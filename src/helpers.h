@@ -272,12 +272,12 @@ inline int lane_from_d(double d, int num_lanes = 3, double lane_width = 4.0)
     return res;
 }
 
-inline double getVehSpeedMph(FusionObjData veh)
+inline double getVehSpeedMph(const FusionObjData& veh)
 {
     return sqrt(veh.vx * veh.vx + veh.vy * veh.vy) * 2.24;
 }
 
-inline double getVehSpeedMs(FusionObjData veh)
+inline double getVehSpeedMs(const FusionObjData& veh)
 {
     return sqrt(veh.vx * veh.vx + veh.vy * veh.vy);
 }
@@ -330,4 +330,31 @@ inline double x_for_arc_length(const tk::spline &s, double arc_length, double x_
         res = curr_x;
     }
     return res;
+}
+
+/*
+ * Approximate the curvate of the road ahead by getting a waypoint ahead of the ego vehicle and calculating the angle
+ * between the ego longitudinal axis and the vector between the front of the ego and the waypoint
+ */
+inline double getRoadCurvatureFront(const VehicleData& veh_data, const MapData &map_data, const double wp_offset)
+{
+    int curr_lane = lane_from_d(veh_data.car_d);
+
+    double car_yaw = deg2rad(veh_data.car_yaw);
+
+    vector<double> wp = getXY(veh_data.car_s + wp_offset,
+                                    2 + curr_lane * lane_width,
+                                    map_data.maps_s,
+                                    map_data.maps_x,
+                                    map_data.maps_y);
+
+    double wp_angle_global = atan2(wp[1] - veh_data.car_y, wp[0] - veh_data.car_x);
+
+    // transform car_yaw to range [-pi, +pi]
+    if (car_yaw > pi())
+    {
+        car_yaw = car_yaw - 2*pi();
+    }
+
+    return rad2deg(wp_angle_global - car_yaw);
 }

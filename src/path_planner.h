@@ -9,7 +9,13 @@ class PathPlanner
 {
   public:
 
-    PathPlanner() : m_rep_ctr(0), m_wp_offset(30.0), m_state(eState::FOLLOWLANE) {}
+    PathPlanner() : m_rep_ctr(0),
+                    m_wp_offset(30.0),
+                    m_road_curv_ctr(0),
+                    m_follow_lane_ctr(0),
+                    m_change_lane_ctr(0),
+                    m_road_straight_b(false),
+                    m_state(eState::FOLLOWLANE) {}
 
     /*!
      * main function of PathPlanner, that returns the trajectory of the ego vehicle based on
@@ -79,9 +85,16 @@ class PathPlanner
     /*!
      * Calculates the target velocity for the ego vehicle based on the velocity of vehicles in front
      * in the same lane. The name ACC is inspired by 'Adaptive Cruise Control', since this function
-     * basically implements the same functionality
+     * basically implements the same functionality. The function uses Frenet coordinates.
      */
-    double setACCVel(vector<FusionData> fus_obj_by_lane, int curr_lane, double car_s,double end_path_s);
+    double setACCVelByLane(vector<FusionData> fus_obj_by_lane, int curr_lane, double car_s,double end_path_s);
+
+    /*!
+     * Searches for vehicles in a region of interest (ROI) in front of the ego vehicle. If there are vehicles in the ROI
+     * it choses the longitudinally cloest one and sets the target speed of the ego to the speed of this vehicle. This
+     * function uses cartesion coordinates.
+     */
+    double setACCVel(const FusionData& fus_objs, const VehicleData& veh_data);
 
     /*!
      * Returns the indices of the lanes, that allow the highest speed.
@@ -98,14 +111,31 @@ class PathPlanner
 
     // Current state machine state
     eState m_state;
+
     // Index of lane, that the ego is trying to drive on
     int m_target_lane;
+
     // Intermediate target lane, if current lane and actual target lane are not right next to each
     // other
     int m_tmp_target_lane;
+
     // After a lane change, this counter has to run out, before a new lane change is allowed
     int m_rep_ctr;
+
     // Waypoint offset, which defines the distance between the support points for the trajectory
     // spline
     double m_wp_offset;
+
+    // In order for the road ahead to be considered straight, the curvature has to be below a threshold for a certain
+    // amount of time. This counter is used for that purpose.
+    int m_road_curv_ctr;
+
+    // This counter is used to determine how long the CHANGELANE state was active
+    int m_change_lane_ctr;
+
+    // This counter is used to determine how long the FOLLOWLANE state was active
+    int m_follow_lane_ctr;
+
+    // This bool is true, if the road ahead is straight.
+    bool m_road_straight_b;
 };

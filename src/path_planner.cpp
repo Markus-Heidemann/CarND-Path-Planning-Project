@@ -28,6 +28,8 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
 
     int prev_path_size = veh_data.previous_path_x.size();
 
+    assert(CHANGE_LANE_MIN_TIME < CHANGE_LANE_MAX_TIME);
+
     curr_lane = lane_from_d(veh_data.car_d);
 
     if (car_vel < 10.0)
@@ -39,6 +41,27 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
         m_wp_offset = car_vel;
     }
 
+    if (ROAD_CURV_CTR_MAX > m_road_curv_ctr)
+    {
+        m_road_curv_ctr++;
+    }
+
+    // check if the road is straight, to avoid jerky lane changes, when the road is curvy
+    double curvature = getRoadCurvatureFront(veh_data, map_data, m_wp_offset);
+
+    bool m_road_straight_b = false;
+
+    if (abs(curvature) > ROAD_MAX_CURV_STRAIGHT)
+    {
+        m_road_curv_ctr = 0;
+    }
+    else
+    {
+        if (ROAD_CURV_CTR_MAX <= m_road_curv_ctr)
+        {
+            m_road_straight_b = true;
+        }
+    }
 
     std::vector<double> lane_speeds = std::vector<double>(num_lanes, v_max);
 
@@ -84,11 +107,22 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
                         m_target_lane = poss_lane;
                     }
                 }
-                m_state = eState::PREPARELANECHANGE;
-                std::cout << "PREPARELANECHANGE: " << m_target_lane << "\n";
+
+                // make sure, that the state machine stays in FOLLOWLANE for some time, in order to avoid erratic lane
+                // changes
+                if (FOLLOW_LANE_MIN_TIME >= m_follow_lane_ctr)
+                {
+                    m_follow_lane_ctr++;
+                }
+                else
+                {
+                    m_follow_lane_ctr = 0;
+                    m_state = eState::PREPARELANECHANGE;
+                    std::cout << "PREPARELANECHANGE: " << m_target_lane << "\n";
+                }
             }
             // get target vel from vehicle in front
-            target_vel = setACCVel(fus_obj_by_lane, curr_lane, car_s, veh_data.end_path_s);
+            target_vel = setACCVelByLane(fus_obj_by_lane, curr_lane, car_s, veh_data.end_path_s);
         }
 
         /*
@@ -118,7 +152,9 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
                                                                lane_speeds[m_tmp_target_lane],
                                                                map_data);
 
-            if (lane_chg_possible)
+            std::cout << "lane_chg_possible: " << lane_chg_possible << "\t m_road_straight_b: " << m_road_straight_b << "\n";
+
+            if (lane_chg_possible && m_road_straight_b)
             {
                 lane_for_traj = m_tmp_target_lane;
                 m_state = eState::CHANGELANE;
@@ -133,7 +169,7 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
                     std::cout << "FOLLOWLANE\n";
                 }
             }
-            target_vel = setACCVel(fus_obj_by_lane, curr_lane, car_s, veh_data.end_path_s);
+            target_vel = setACCVelByLane(fus_obj_by_lane, curr_lane, car_s, veh_data.end_path_s);
         }
 
         /*
@@ -145,7 +181,7 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
             lane_for_traj = curr_lane;
             if (curr_lane == m_tmp_target_lane)
             {
-                if (m_rep_ctr > 49)
+                if (m_rep_ctr > CHANGE_LANE_MIN_TIME)
                 {
                     m_rep_ctr = 0;
                     m_state = eState::FOLLOWLANE;
@@ -159,10 +195,26 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
             else
             {
                 lane_for_traj = m_tmp_target_lane;
-                m_wp_offset = 50.0;
+                // m_wp_offset = 50.0;
             }
-            target_vel = setACCVel(fus_obj_by_lane, lane_for_traj, car_s, veh_data.end_path_s);
+            target_vel = setACCVelByLane(fus_obj_by_lane, lane_for_traj, car_s, veh_data.end_path_s);
+
+            // a lane change shouldn't take too long, so after a 'timer' runs out, the state machine is forcefully set
+            // to FOLLOWLANE. This remedies an error, that happens from time to time, where the CHANGELANE state is
+            // never left
+            m_change_lane_ctr++;
+
+            if (CHANGE_LANE_MAX_TIME <= m_change_lane_ctr)
+            {
+                m_change_lane_ctr = 0;
+                m_state = eState::FOLLOWLANE;
+                std::cout << "forced FOLLOWLANE\n";
+            }
         }
+
+        // determine the ACC velocity with the setACCVel() function, which serves as a fallback level, in case
+        // setACCVelByLane() is wrong. Take the minimum of both for safety
+        target_vel = min(setACCVel(veh_data.sensor_fusion, veh_data), target_vel);
     }
 
     double ref_x = car_x;
@@ -181,7 +233,7 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
         ref_yaw = atan2(ref_y - ref_prev_y, ref_x - ref_prev_x);
     }
 
-    // calculate waypoints 30, 60, and 90 meters ahead of the ego vehicle
+    // calculate waypoints m_wp_offset * (0,1,2) meters ahead of the ego vehicle
     for (unsigned int i = 0; i < 2; i++)
     {
         vector<double> wp = getXY(veh_data.car_s + m_wp_offset * (i + 1),
@@ -442,22 +494,8 @@ bool PathPlanner::checkIfLaneChangePossible(const VehicleData &veh_data,
 
     for (auto const &pred_traj : predictions)
     {
-        res = res && !trajToClose(pred_traj, ego_traj, 7.0);
+        res = res && !trajToClose(pred_traj, ego_traj, 10.0);
     }
-
-    // check, if a sharp curve is coming up
-    // in order to avoid exceeding the maximum jerk, no lane changes are being done in sharp curves
-    vector<double> wp_0 = getXY(veh_data.car_s + 50,
-                                0,
-                                map_data.maps_s,
-                                map_data.maps_x,
-                                map_data.maps_y);
-    vector<double> wp_1 = getXY(veh_data.car_s + 100,
-                                0,
-                                map_data.maps_s,
-                                map_data.maps_x,
-                                map_data.maps_y);
-    
 
     return res;
 }
@@ -490,7 +528,7 @@ Trajectory PathPlanner::getRoughTrajectoryStart(const VehicleData &veh_data)
     return traj;
 }
 
-double PathPlanner::setACCVel(vector<FusionData> fus_obj_by_lane,
+double PathPlanner::setACCVelByLane(vector<FusionData> fus_obj_by_lane,
                                 int curr_lane,
                                 double car_s,
                                 double end_path_s)
@@ -507,6 +545,49 @@ double PathPlanner::setACCVel(vector<FusionData> fus_obj_by_lane,
         }
     }
     target_vel = min(target_vel, v_max);
+    return target_vel;
+}
+
+double PathPlanner::setACCVel(const FusionData& fus_objs, const VehicleData& veh_data)
+{
+    double target_vel = v_max;
+
+    double car_yaw = deg2rad(veh_data.car_yaw);
+
+    double acc_roi_long = veh_data.car_speed / 2.24 + dist_margin;
+
+    FusionData objs_in_roi;
+
+    for (const auto& fus_obj : fus_objs)
+    {
+        // transform to ego vehicle coordinate system
+        double shift_x = fus_obj.x - veh_data.car_x;
+        double shift_y = fus_obj.y - veh_data.car_y;
+
+        double fus_obj_x = shift_x * cos(0 - car_yaw) - shift_y * sin(0 - car_yaw);
+        double fus_obj_y = shift_x * sin(0 - car_yaw) + shift_y * cos(0 - car_yaw);
+
+        if (abs(fus_obj_y) < ACC_ROI_LAT && 0 <= fus_obj_x && fus_obj_x <= acc_roi_long)
+        {
+            FusionObjData obj;
+
+            obj = fus_obj;
+            obj.x = fus_obj_x;
+            obj.y = fus_obj_y;
+
+            objs_in_roi.push_back(obj);
+        }
+    }
+
+    if (objs_in_roi.size() > 0)
+    {
+        auto it = std::min_element(std::begin(objs_in_roi),
+                                    std::end(objs_in_roi),
+                                    [](FusionObjData& a, FusionObjData& b) {return a.x < b.x;});
+
+        target_vel = getVehSpeedMph(*it) - ((it->y / acc_roi_long) * acc_roi_long) * 2.0;
+    }
+
     return target_vel;
 }
 
