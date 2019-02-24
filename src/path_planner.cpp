@@ -152,8 +152,6 @@ Trajectory PathPlanner::getPath(VehicleData &veh_data,
                                                                lane_speeds[m_tmp_target_lane],
                                                                map_data);
 
-            std::cout << "lane_chg_possible: " << lane_chg_possible << "\t m_road_straight_b: " << m_road_straight_b << "\n";
-
             if (lane_chg_possible && m_road_straight_b)
             {
                 lane_for_traj = m_tmp_target_lane;
